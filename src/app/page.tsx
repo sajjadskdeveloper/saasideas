@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Lightbulb, Rocket, Search, Loader } from "lucide-react";
+import { getRedditPostLinks, RedditPost } from "@/lib/reddit";
 
 interface CardData {
   title: string;
@@ -26,7 +27,9 @@ export default function Home() {
   const [ideas, setIdeas] = useState<CardData[]>([]);
   const [mvps, setMvps] = useState<CardData[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState('');
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,26 +39,58 @@ export default function Home() {
     setHasGenerated(true);
     setIdeas([]);
     setMvps([]);
+    setError('');
 
     try {
-      const response = await fetch("/api/generate-ideas", {
+      // Step 1: Search for reddit posts
+      setLoadingStep('Searching for relevant Reddit posts...');
+      const searchResponse = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic }),
       });
 
-      const data = await response.json();
+      if (!searchResponse.ok) {
+        throw new Error('Failed to search for posts.');
+      }
+
+      const searchData = await searchResponse.json();
+      
+      const redditPosts = getRedditPostLinks(searchData);
+
+      if (redditPosts.length === 0) {
+        setError('No relevant Reddit posts found. Please try a different topic.');
+        setLoading(false);
+        return;
+      }
+      
+      // Step 2: Generate ideas from posts
+      setLoadingStep('Analyzing posts and generating ideas...');
+      const ideasResponse = await fetch("/api/generate-ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ redditPosts }),
+      });
+
+      if (!ideasResponse.ok) {
+        throw new Error('Failed to generate ideas.');
+      }
+
+      const data = await ideasResponse.json();
       
       // Simulate network delay for effect
       setTimeout(() => {
         setIdeas(data.ideas);
         setMvps(data.mvps);
         setLoading(false);
+        setLoadingStep('');
       }, 1500);
 
     } catch (error) {
       console.error("Failed to fetch ideas:", error);
+      setError('An error occurred. Please try again.');
       setLoading(false);
+      setLoadingStep('');
     }
   };
 
@@ -99,17 +134,23 @@ export default function Home() {
 
         {loading && (
           <div className="text-center text-white animate-fadeIn">
-            <p>Our AI is crafting some brilliant ideas for you...</p>
+            <p>{loadingStep}</p>
           </div>
         )}
 
-        {hasGenerated && !loading && ideas.length === 0 && mvps.length === 0 && (
+        {error && (
+          <div className="text-center text-red-400 animate-fadeIn">
+            <p>{error}</p>
+          </div>
+        )}
+
+        {hasGenerated && !loading && !error && ideas.length === 0 && mvps.length === 0 && (
           <div className="text-center text-gray-400 animate-fadeIn">
             <p>No ideas generated. Try a different topic!</p>
           </div>
         )}
 
-        {(ideas.length > 0 || mvps.length > 0) && (
+        {!error && (ideas.length > 0 || mvps.length > 0) && (
           <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-10">
             {ideas.length > 0 && (
               <div className="flex flex-col gap-8">
