@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Lightbulb, Rocket, Search, Loader } from "lucide-react";
-import { getRedditPostLinks, RedditPost } from "@/lib/reddit";
+import { getRedditPostLinks, RedditPost, getRedditComments, aggregateComments } from "@/lib/reddit";
 
 interface CardData {
   title: string;
@@ -64,12 +64,26 @@ export default function Home() {
         return;
       }
       
-      // Step 2: Generate ideas from posts
-      setLoadingStep('Analyzing posts and generating ideas...');
+      // Step 2: Fetch comments from posts
+      setLoadingStep('Fetching comments from Reddit...');
+      const allComments = await Promise.all(
+        redditPosts.slice(0, 5).map((post: RedditPost) => getRedditComments(post.subreddit_id, post.post_id))
+      );
+      
+      const aggregatedComments = aggregateComments(allComments.flat());
+
+      if (!aggregatedComments.trim()) {
+        setError('Could not retrieve any comments from the Reddit posts.');
+        setLoading(false);
+        return;
+      }
+      
+      // Step 3: Generate ideas from comments
+      setLoadingStep('Analyzing comments and generating ideas...');
       const ideasResponse = await fetch("/api/generate-ideas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ redditPosts }),
+        body: JSON.stringify({ aggregatedComments }),
       });
 
       if (!ideasResponse.ok) {
